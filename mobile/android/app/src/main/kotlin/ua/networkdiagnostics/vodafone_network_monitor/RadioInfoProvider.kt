@@ -26,8 +26,14 @@ class RadioInfoProvider(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun read(executor: Executor, callback: (Map<String, Any?>) -> Unit) {
-        if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_RADIO_ACCESS)) {
-            callback(unavailable("unsupported"))
+        val packageManager = context.packageManager
+        val hasRadioAccessFeature =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_RADIO_ACCESS)
+        val hasLegacyTelephonyFeature =
+            packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY)
+        if (!hasRadioAccessFeature && !hasLegacyTelephonyFeature) {
+            callback(unavailable("radio_feature_missing"))
             return
         }
         if (!hasFineLocationPermission()) {
@@ -37,7 +43,7 @@ class RadioInfoProvider(private val context: Context) {
 
         val telephony = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
         if (telephony == null) {
-            callback(unavailable("unsupported"))
+            callback(unavailable("telephony_service_unavailable"))
             return
         }
 
@@ -49,6 +55,18 @@ class RadioInfoProvider(private val context: Context) {
                         override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
                             callback(snapshot(cellInfo))
                         }
+
+                        override fun onError(errorCode: Int, detail: Throwable?) {
+                            callback(
+                                unavailable(
+                                    when (errorCode) {
+                                        TelephonyManager.CellInfoCallback.ERROR_TIMEOUT -> "modem_timeout"
+                                        TelephonyManager.CellInfoCallback.ERROR_MODEM_ERROR -> "modem_error"
+                                        else -> "cell_info_error"
+                                    },
+                                ),
+                            )
+                        }
                     },
                 )
                 return
@@ -56,7 +74,10 @@ class RadioInfoProvider(private val context: Context) {
                 callback(unavailable("permission_unavailable"))
                 return
             } catch (_: UnsupportedOperationException) {
-                callback(unavailable("unsupported"))
+                callback(unavailable("api_unsupported"))
+                return
+            } catch (_: RuntimeException) {
+                callback(unavailable("read_error"))
                 return
             }
         }

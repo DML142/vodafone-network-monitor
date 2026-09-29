@@ -52,9 +52,12 @@ class MonitorDatabase(context: Context) :
                 rsrq_db INTEGER,
                 rssnr_db INTEGER,
                 channel INTEGER,
-                radio_age_ms INTEGER
+                radio_age_ms INTEGER,
+                download_mbps REAL,
+                upload_mbps REAL
             )""".trimIndent(),
         )
+        db.execSQL("CREATE TABLE preferences (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
         db.execSQL(
             "CREATE INDEX measurements_by_session_time " +
                 "ON measurements(session_id, observed_at_utc)",
@@ -156,6 +159,8 @@ class MonitorDatabase(context: Context) :
             "rssnrDb" to "rssnr_db",
             "channel" to "channel",
             "ageMillis" to "radio_age_ms",
+            "downloadMbps" to "download_mbps",
+            "uploadMbps" to "upload_mbps",
         )
         val contentValues = ContentValues().apply {
             put("session_id", sessionId)
@@ -235,6 +240,36 @@ class MonitorDatabase(context: Context) :
 
     fun deleteAll(): Int = writableDatabase.delete("sessions", null, null)
 
+    fun getPreferences(): Map<String, String> {
+        val values = mutableMapOf<String, String>()
+        readableDatabase.query("preferences", arrayOf("key", "value"), null, null, null, null, null)
+            .use { cursor ->
+                while (cursor.moveToNext()) values[cursor.getString(0)] = cursor.getString(1)
+            }
+        return values
+    }
+
+    fun setPreferences(values: Map<String, String>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            values.forEach { (key, value) ->
+                db.insertWithOnConflict(
+                    "preferences",
+                    null,
+                    ContentValues().apply {
+                        put("key", key)
+                        put("value", value)
+                    },
+                    SQLiteDatabase.CONFLICT_REPLACE,
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     private fun ContentValues.putValue(key: String, value: Any?) {
         when (value) {
             null -> putNull(key)
@@ -250,7 +285,7 @@ class MonitorDatabase(context: Context) :
 
     private companion object {
         const val DATABASE_NAME = "network-monitor.sqlite"
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 2
         const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
     }
 }

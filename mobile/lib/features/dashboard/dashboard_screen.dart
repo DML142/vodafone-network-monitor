@@ -91,7 +91,7 @@ class DashboardScreen extends StatelessWidget {
               _MetricCard(
                 icon: Icons.download_outlined,
                 label: 'Скорость',
-                value: '—',
+                value: _speedValue(monitor.lastSpeedTest?['downloadMbps']),
                 unit: 'Мбит/с',
               ),
               _MetricCard(
@@ -102,6 +102,8 @@ class DashboardScreen extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 20),
+          _speedTestCard(context),
           const SizedBox(height: 20),
           RadioInfoCard(monitor: monitor),
           const SizedBox(height: 20),
@@ -249,6 +251,91 @@ class DashboardScreen extends StatelessWidget {
       ),
     );
   }
+
+  Widget _speedTestCard(BuildContext context) {
+    final result = monitor.lastSpeedTest;
+    return Card(
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.speed),
+            title: const Text('Ручной скоростной тест'),
+            subtitle: Text(
+              result == null
+                  ? 'Разовая проверка скачивания и отдачи.'
+                  : '↓ ${_speedValue(result['downloadMbps'])} Мбит/с · '
+                        '↑ ${_speedValue(result['uploadMbps'])} Мбит/с',
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: monitor.speedTestInProgress
+                    ? null
+                    : () => _runSpeedTest(context),
+                icon: monitor.speedTestInProgress
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.speed),
+                label: Text(
+                  monitor.speedTestInProgress
+                      ? 'Измерение скорости…'
+                      : 'Запустить тест',
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _runSpeedTest(BuildContext context) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Запустить скоростной тест?'),
+        content: const Text(
+          'Для каждого направления будет передано до 10 МБ сгенерированных '
+          'данных на speed.cloudflare.com. Cloudflare увидит IP-адрес сетевого '
+          'соединения; файлы и журналы приложения не отправляются. Тест использует '
+          'мобильный трафик, если сейчас подключена мобильная сеть. Результат сохранится в истории.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Запустить'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+    final result = await monitor.runSpeedTest();
+    if (!context.mounted) return;
+    final download = result?['downloadMbps'];
+    final upload = result?['uploadMbps'];
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result == null
+              ? monitor.platformError ?? 'Скоростной тест не завершился.'
+              : 'Скачивание: ${_speedValue(download)} Мбит/с · '
+                    'отдача: ${_speedValue(upload)} Мбит/с',
+        ),
+      ),
+    );
+  }
+
+  static String _speedValue(Object? value) =>
+      value is num ? value.toStringAsFixed(1) : '—';
 
   Future<void> _toggleRecording(BuildContext context) async {
     if (monitor.isRecording) {
