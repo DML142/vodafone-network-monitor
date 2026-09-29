@@ -1,24 +1,32 @@
 package ua.networkdiagnostics.vodafone_network_monitor
 
 import android.content.Context
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import io.flutter.plugin.common.EventChannel
 
 class NetworkStatusStreamHandler(context: Context) : EventChannel.StreamHandler {
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private var eventSink: EventChannel.EventSink? = null
     private var callback: ConnectivityManager.NetworkCallback? = null
+    private var recordingStateReceiver: BroadcastReceiver? = null
     private var activeNetwork: Network? = null
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
         onCancel(null)
         eventSink = events
+        registerRecordingStateReceiver()
+        emitRecordingState(RecordingService.isRunning, RecordingService.currentSessionId)
 
         val networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
@@ -86,8 +94,46 @@ class NetworkStatusStreamHandler(context: Context) : EventChannel.StreamHandler 
             }
         }
         callback = null
+        recordingStateReceiver?.let { receiver ->
+            try {
+                appContext.unregisterReceiver(receiver)
+            } catch (_: IllegalArgumentException) {
+                // The receiver can already be unregistered when the engine shuts down.
+            }
+        }
+        recordingStateReceiver = null
         activeNetwork = null
         eventSink = null
+    }
+
+    fun emitRecordingState(recording: Boolean, sessionId: String?) {
+        val event = mapOf(
+            "eventType" to "recording",
+            "recording" to recording,
+            "sessionId" to sessionId,
+            "observedAtUtc" to System.currentTimeMillis(),
+        )
+        mainHandler.post { eventSink?.success(event) }
+    }
+
+    private fun registerRecordingStateReceiver() {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action != RecordingService.ACTION_RECORDING_STATE) return
+                emitRecordingState(
+                    intent.getBooleanExtra(RecordingService.EXTRA_RECORDING, false),
+                    intent.getStringExtra(RecordingService.EXTRA_SESSION_ID),
+                )
+            }
+        }
+        recordingStateReceiver = receiver
+        val filter = IntentFilter(RecordingService.ACTION_RECORDING_STATE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            appContext.registerReceiver(receiver, filter)
+        }
     }
 
     private fun emit(

@@ -55,6 +55,9 @@ class NetworkMonitorController extends ChangeNotifier {
   int? radioChannel;
   int? radioAgeMillis;
   DateTime? radioObservedAt;
+  bool isRecording = false;
+  bool recordingActionInProgress = false;
+  String? recordingSessionId;
 
   void start() {
     if (_started) return;
@@ -85,6 +88,7 @@ class NetworkMonitorController extends ChangeNotifier {
   void _startForegroundSampling() {
     unawaited(runProbe());
     unawaited(refreshRadio());
+    unawaited(refreshRecordingState());
     _probeTimer = Timer.periodic(probeInterval, (_) => unawaited(runProbe()));
     _radioTimer = Timer.periodic(
       radioInterval,
@@ -180,6 +184,85 @@ class NetworkMonitorController extends ChangeNotifier {
     }
   }
 
+  Future<bool> hasNotificationPermission() async {
+    try {
+      return await _methodChannel.invokeMethod<bool>(
+            'hasNotificationPermission',
+          ) ??
+          false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  Future<bool> requestNotificationPermission() async {
+    try {
+      return await _methodChannel.invokeMethod<bool>(
+            'requestNotificationPermission',
+          ) ??
+          false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  Future<bool> startRecording() async {
+    if (recordingActionInProgress || isRecording) return isRecording;
+    recordingActionInProgress = true;
+    notifyListeners();
+    try {
+      isRecording =
+          await _methodChannel.invokeMethod<bool>('startRecording') ?? false;
+      if (!isRecording) recordingSessionId = null;
+      return isRecording;
+    } on PlatformException catch (error) {
+      platformError = error.message ?? 'Не удалось начать запись';
+      return false;
+    } on MissingPluginException {
+      platformError = 'Запись доступна только в Android-приложении';
+      return false;
+    } finally {
+      recordingActionInProgress = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> stopRecording() async {
+    if (recordingActionInProgress || !isRecording) return;
+    recordingActionInProgress = true;
+    notifyListeners();
+    try {
+      await _methodChannel.invokeMethod<void>('stopRecording');
+    } on PlatformException catch (error) {
+      platformError = error.message ?? 'Не удалось остановить запись';
+    } on MissingPluginException {
+      platformError = 'Запись доступна только в Android-приложении';
+    } finally {
+      recordingActionInProgress = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> refreshRecordingState() async {
+    try {
+      final values = await _methodChannel.invokeMapMethod<String, dynamic>(
+        'getRecordingState',
+      );
+      if (values == null) return;
+      isRecording = values['recording'] == true;
+      recordingSessionId = values['sessionId'] as String?;
+      notifyListeners();
+    } on PlatformException {
+      // The foreground service may not be available during initial startup.
+    } on MissingPluginException {
+      // Keep the unavailable state on targets outside Android.
+    }
+  }
+
   void _applyRadioInfo(Map<String, dynamic> values) {
     radioStatus = values['status'] as String? ?? 'read_error';
     radioAccessTechnology = values['accessTechnology'] as String?;
@@ -209,6 +292,12 @@ class NetworkMonitorController extends ChangeNotifier {
   void _onNativeEvent(Object? event) {
     if (event is! Map) return;
     final values = Map<String, dynamic>.from(event);
+    if (values['eventType'] == 'recording') {
+      isRecording = values['recording'] == true;
+      recordingSessionId = values['sessionId'] as String?;
+      notifyListeners();
+      return;
+    }
     if (values['eventType'] != 'network') return;
 
     final wasAvailable = routeAvailable;

@@ -105,6 +105,8 @@ class DashboardScreen extends StatelessWidget {
           const SizedBox(height: 20),
           RadioInfoCard(monitor: monitor),
           const SizedBox(height: 20),
+          _recordingCard(context),
+          const SizedBox(height: 20),
           Card(
             child: Column(
               children: [
@@ -198,6 +200,108 @@ class DashboardScreen extends StatelessWidget {
     'unexpected_http_status' => 'Неожиданный HTTP-код ${monitor.httpStatus}',
     _ => 'Проверка не удалась: ${monitor.failureReason}',
   };
+
+  Widget _recordingCard(BuildContext context) {
+    return Card(
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(
+              monitor.isRecording
+                  ? Icons.fiber_manual_record
+                  : Icons.radio_button_unchecked,
+              color: monitor.isRecording
+                  ? Theme.of(context).colorScheme.error
+                  : null,
+            ),
+            title: Text(
+              monitor.isRecording ? 'Запись активна' : 'Запись остановлена',
+            ),
+            subtitle: Text(
+              monitor.isRecording
+                  ? 'Измерения сохраняются локально. Остановить можно здесь или из уведомления.'
+                  : 'Запускайте и останавливайте сбор вручную.',
+            ),
+            trailing: monitor.isRecording && monitor.recordingSessionId != null
+                ? const Icon(Icons.check_circle_outline)
+                : null,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: monitor.recordingActionInProgress
+                    ? null
+                    : () => _toggleRecording(context),
+                icon: Icon(
+                  monitor.isRecording
+                      ? Icons.stop_circle_outlined
+                      : Icons.fiber_manual_record,
+                ),
+                label: Text(
+                  monitor.isRecording ? 'Остановить запись' : 'Начать запись',
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _toggleRecording(BuildContext context) async {
+    if (monitor.isRecording) {
+      await monitor.stopRecording();
+      return;
+    }
+
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Начать сетевую запись?'),
+        content: const Text(
+          'Приложение будет сохранять локально состояние сети и лёгкую '
+          'HTTPS-проверку раз в 30 секунд. Радиоданные добавляются только '
+          'если вы разрешили их отдельно. Постоянное уведомление покажет '
+          'активную запись и позволит остановить её. Скоростной тест запускается отдельно.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Не сейчас'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Продолжить'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !context.mounted) return;
+
+    var notificationPermission = await monitor.hasNotificationPermission();
+    if (!notificationPermission) {
+      notificationPermission = await monitor.requestNotificationPermission();
+    }
+    if (!context.mounted) return;
+    if (!notificationPermission) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Без разрешения на уведомление запись не запущена.'),
+        ),
+      );
+      return;
+    }
+
+    final started = await monitor.startRecording();
+    if (!context.mounted || started) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(monitor.platformError ?? 'Не удалось начать запись.'),
+      ),
+    );
+  }
 
   static String _formatTime(DateTime? value) {
     if (value == null) return 'Нет данных';
