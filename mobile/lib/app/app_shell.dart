@@ -44,7 +44,7 @@ class _AppShellState extends State<AppShell> {
         themeMode: widget.themeMode,
         onThemeModeChanged: widget.onThemeModeChanged,
       ),
-      const PermissionDiagnosticsScreen(),
+      PermissionDiagnosticsScreen(monitor: widget.monitor),
     ];
 
     return Scaffold(

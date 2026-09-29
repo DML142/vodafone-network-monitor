@@ -1,35 +1,30 @@
 import 'package:flutter/material.dart';
 
+import '../../core/monitoring/network_monitor_controller.dart';
+import 'radio_info_card.dart';
+
 class PermissionDiagnosticsScreen extends StatelessWidget {
-  const PermissionDiagnosticsScreen({super.key});
+  const PermissionDiagnosticsScreen({required this.monitor, super.key});
+
+  final NetworkMonitorController monitor;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Card(
+        Card(
           child: ListTile(
             leading: Icon(Icons.check_circle_outline),
-            title: Text('Разрешения пока не запрашивались'),
+            title: Text('Базовая диагностика без разрешения на геолокацию'),
             subtitle: Text(
-              'Каркас приложения не собирает данные сети или телефона.',
+              'INTERNET и ACCESS_NETWORK_STATE нужны для проверки подключения. '
+              'Они не дают доступ к телефону или SIM.',
             ),
           ),
         ),
         const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              'Android требует разрешение на точное местоположение для '
-              'получения сведений CellInfo. Приложение объяснит это перед '
-              'включением радиоданных; без разрешения базовая проверка '
-              'интернета должна работать.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ),
-        ),
+        RadioInfoCard(monitor: monitor),
       ],
     );
   }
