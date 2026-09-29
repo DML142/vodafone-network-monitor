@@ -10,3 +10,30 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Local AI/project notes: keep out of Git
+/AGENTS.md
+/tech.md
+/MEMORY.md
+
+# Flutter and Android generated files / local signing configuration
+.dart_tool/
+/.flutter-plugins
+/.flutter-plugins-dependencies
+/build/
+/android/.gradle/
+/android/local.properties
+*.jks
+*.keystore
+key.properties
+
+# Local diagnostic data and exports
+/recordings/
+/exports/
+# Generated Flutter files in nested mobile app
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/build/
+**/.gradle/
+**/local.properties
