@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -24,7 +26,11 @@ class _NetworkMonitorAppState extends State<NetworkMonitorApp>
     _monitor.setAppForeground(
       WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
     );
-    _monitor.start();
+    _monitor.loadSettings().then((_) {
+      if (!mounted) return;
+      setState(() => _themeMode = _themeModeFromValue(_monitor.themeMode));
+      _monitor.start();
+    });
   }
 
   @override
@@ -41,6 +47,15 @@ class _NetworkMonitorAppState extends State<NetworkMonitorApp>
 
   void _setThemeMode(ThemeMode themeMode) {
     setState(() => _themeMode = themeMode);
+    unawaited(
+      _monitor.saveSettings(
+        newProbeIntervalSeconds: _monitor.probeIntervalSeconds,
+        newRetentionDays: _monitor.retentionDays,
+        newProbeHost: _monitor.probeHost,
+        newProbeUrl: _monitor.probeUrl,
+        newThemeMode: _themeModeValue(themeMode),
+      ),
+    );
   }
 
   @override
@@ -62,3 +77,15 @@ class _NetworkMonitorAppState extends State<NetworkMonitorApp>
     );
   }
 }
+
+ThemeMode _themeModeFromValue(String value) => switch (value) {
+  'light' => ThemeMode.light,
+  'system' => ThemeMode.system,
+  _ => ThemeMode.dark,
+};
+
+String _themeModeValue(ThemeMode value) => switch (value) {
+  ThemeMode.light => 'light',
+  ThemeMode.system => 'system',
+  ThemeMode.dark => 'dark',
+};

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../../features/sessions/session_exporter.dart';
+
 const _methodChannel = MethodChannel(
   'ua.networkdiagnostics.vodafone_network_monitor/methods',
 );
@@ -11,7 +13,7 @@ const _eventChannel = EventChannel(
 );
 
 class NetworkMonitorController extends ChangeNotifier {
-  static const probeInterval = Duration(seconds: 30);
+  int probeIntervalSeconds = 30;
   static const radioInterval = Duration(seconds: 60);
   static const _defaultHost = 'connectivitycheck.gstatic.com';
   static const _defaultProbeUrl =
@@ -58,6 +60,13 @@ class NetworkMonitorController extends ChangeNotifier {
   bool isRecording = false;
   bool recordingActionInProgress = false;
   String? recordingSessionId;
+  int retentionDays = 30;
+  String probeHost = _defaultHost;
+  String probeUrl = _defaultProbeUrl;
+  String themeMode = 'dark';
+  List<Map<String, dynamic>> sessions = [];
+  Map<String, dynamic>? lastSpeedTest;
+  bool speedTestInProgress = false;
 
   void start() {
     if (_started) return;
@@ -86,10 +95,15 @@ class NetworkMonitorController extends ChangeNotifier {
   }
 
   void _startForegroundSampling() {
+    _probeTimer?.cancel();
+    _radioTimer?.cancel();
     unawaited(runProbe());
     unawaited(refreshRadio());
     unawaited(refreshRecordingState());
-    _probeTimer = Timer.periodic(probeInterval, (_) => unawaited(runProbe()));
+    _probeTimer = Timer.periodic(
+      Duration(seconds: probeIntervalSeconds),
+      (_) => unawaited(runProbe()),
+    );
     _radioTimer = Timer.periodic(
       radioInterval,
       (_) => unawaited(refreshRadio()),
@@ -102,7 +116,7 @@ class NetworkMonitorController extends ChangeNotifier {
     try {
       final result = await _methodChannel.invokeMapMethod<String, dynamic>(
         'runProbe',
-        {'host': _defaultHost, 'url': _defaultProbeUrl},
+        {'host': probeHost, 'url': probeUrl},
       );
       if (result == null) return;
       _applyProbe(result);
@@ -253,13 +267,198 @@ class NetworkMonitorController extends ChangeNotifier {
         'getRecordingState',
       );
       if (values == null) return;
+      final wasRecording = isRecording;
       isRecording = values['recording'] == true;
       recordingSessionId = values['sessionId'] as String?;
       notifyListeners();
+      if (wasRecording != isRecording) unawaited(refreshSessions());
     } on PlatformException {
       // The foreground service may not be available during initial startup.
     } on MissingPluginException {
       // Keep the unavailable state on targets outside Android.
+    }
+  }
+
+  Future<void> loadSettings() async {
+    try {
+      final values = await _methodChannel.invokeMapMethod<String, dynamic>(
+        'getSettings',
+      );
+      if (values == null) return;
+      _applySettings(values);
+      if (_started && _appForeground) _startForegroundSampling();
+    } on PlatformException {
+      // The local settings are available on Android only.
+    } on MissingPluginException {
+      // Keep in-memory defaults on non-Android targets.
+    }
+  }
+
+  Future<bool> saveSettings({
+    required int newProbeIntervalSeconds,
+    required int newRetentionDays,
+    required String newProbeHost,
+    required String newProbeUrl,
+    required String newThemeMode,
+  }) async {
+    try {
+      final values = await _methodChannel.invokeMapMethod<String, dynamic>(
+        'saveSettings',
+        {
+          'probeIntervalSeconds': newProbeIntervalSeconds,
+          'retentionDays': newRetentionDays,
+          'probeHost': newProbeHost,
+          'probeUrl': newProbeUrl,
+          'themeMode': newThemeMode,
+        },
+      );
+      if (values == null) return false;
+      _applySettings(values);
+      if (_started && _appForeground) _startForegroundSampling();
+      await refreshSessions();
+      return true;
+    } on PlatformException catch (error) {
+      platformError = error.message ?? 'Не удалось сохранить настройки';
+      notifyListeners();
+      return false;
+    } on MissingPluginException {
+      platformError = 'Настройки доступны только в Android-приложении';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  void _applySettings(Map<String, dynamic> values) {
+    probeIntervalSeconds = (values['probeIntervalSeconds'] as num?)?.toInt() ?? 30;
+    retentionDays = (values['retentionDays'] as num?)?.toInt() ?? 30;
+    probeHost = values['probeHost'] as String? ?? _defaultHost;
+    probeUrl = values['probeUrl'] as String? ?? _defaultProbeUrl;
+    themeMode = values['themeMode'] as String? ?? 'dark';
+    notifyListeners();
+  }
+
+  Future<void> refreshSessions() async {
+    try {
+      final rows = await _methodChannel.invokeListMethod<dynamic>('getSessions');
+      if (rows == null) return;
+      sessions = rows
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+      notifyListeners();
+    } on PlatformException {
+      platformError = 'Не удалось прочитать сохранённые сессии';
+      notifyListeners();
+    } on MissingPluginException {
+      sessions = [];
+      notifyListeners();
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> loadMeasurements(String sessionId) async {
+    try {
+      final rows = await _methodChannel.invokeListMethod<dynamic>(
+        'getMeasurements',
+        {'sessionId': sessionId},
+      );
+      return rows
+              ?.whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row))
+              .toList() ??
+          [];
+    } on PlatformException {
+      platformError = 'Не удалось прочитать измерения сессии';
+      notifyListeners();
+      return [];
+    } on MissingPluginException {
+      return [];
+    }
+  }
+
+  Future<bool> deleteSession(String sessionId) async {
+    try {
+      await _methodChannel.invokeMethod<int>(
+        'deleteSession',
+        {'sessionId': sessionId},
+      );
+      await refreshSessions();
+      return true;
+    } on PlatformException catch (error) {
+      platformError = error.message ?? 'Не удалось удалить сессию';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> deleteAllSessions() async {
+    try {
+      await _methodChannel.invokeMethod<int>('deleteAllSessions');
+      await refreshSessions();
+      return true;
+    } on PlatformException catch (error) {
+      platformError = error.message ?? 'Не удалось удалить историю';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> runSpeedTest() async {
+    if (speedTestInProgress) return null;
+    speedTestInProgress = true;
+    notifyListeners();
+    try {
+      lastSpeedTest = await _methodChannel.invokeMapMethod<String, dynamic>(
+        'runSpeedTest',
+      );
+      await refreshSessions();
+      return lastSpeedTest;
+    } on PlatformException catch (error) {
+      platformError = error.message ?? 'Скоростной тест не завершился';
+      notifyListeners();
+      return null;
+    } on MissingPluginException {
+      platformError = 'Скоростной тест доступен только в Android-приложении';
+      notifyListeners();
+      return null;
+    } finally {
+      speedTestInProgress = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> exportSession(
+    Map<String, dynamic> session,
+    String format,
+  ) async {
+    final sessionId = session['id'] as String?;
+    if (sessionId == null) return false;
+    final measurements = await loadMeasurements(sessionId);
+    final isJson = format == 'json';
+    final content = isJson
+        ? SessionExporter.encodeJson(session, measurements)
+        : SessionExporter.encodeCsv(session, measurements);
+    final started = DateTime.fromMillisecondsSinceEpoch(
+      (session['startedAtUtc'] as num?)?.toInt() ?? 0,
+    ).toLocal();
+    final stamp = '${started.year.toString().padLeft(4, '0')}'
+        '${started.month.toString().padLeft(2, '0')}'
+        '${started.day.toString().padLeft(2, '0')}-'
+        '${started.hour.toString().padLeft(2, '0')}'
+        '${started.minute.toString().padLeft(2, '0')}';
+    try {
+      return await _methodChannel.invokeMethod<bool>(
+            'exportSession',
+            {
+              'content': content,
+              'filename': 'network-session-$stamp.${isJson ? 'json' : 'csv'}',
+              'mimeType': isJson ? 'application/json' : 'text/csv',
+            },
+          ) ??
+          false;
+    } on PlatformException catch (error) {
+      platformError = error.message ?? 'Не удалось экспортировать сессию';
+      notifyListeners();
+      return false;
     }
   }
 
@@ -293,9 +492,11 @@ class NetworkMonitorController extends ChangeNotifier {
     if (event is! Map) return;
     final values = Map<String, dynamic>.from(event);
     if (values['eventType'] == 'recording') {
+      final wasRecording = isRecording;
       isRecording = values['recording'] == true;
       recordingSessionId = values['sessionId'] as String?;
       notifyListeners();
+      if (wasRecording != isRecording) unawaited(refreshSessions());
       return;
     }
     if (values['eventType'] != 'network') return;

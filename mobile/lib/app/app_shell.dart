@@ -38,9 +38,10 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final screens = [
       DashboardScreen(monitor: widget.monitor),
-      const ChartsScreen(),
-      const SessionsScreen(),
+      ChartsScreen(monitor: widget.monitor),
+      SessionsScreen(monitor: widget.monitor),
       SettingsScreen(
+        monitor: widget.monitor,
         themeMode: widget.themeMode,
         onThemeModeChanged: widget.onThemeModeChanged,
       ),

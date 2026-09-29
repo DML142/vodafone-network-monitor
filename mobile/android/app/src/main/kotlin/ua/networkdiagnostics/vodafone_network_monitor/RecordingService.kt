@@ -19,6 +19,7 @@ import android.os.Looper
 import android.os.SystemClock
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 class RecordingService : Service() {
@@ -32,9 +33,9 @@ class RecordingService : Service() {
     private val radioInfo by lazy { RadioInfoProvider(applicationContext) }
     private lateinit var database: MonitorDatabase
     private lateinit var worker: ScheduledExecutorService
+    private var sampleTask: ScheduledFuture<*>? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var activeNetwork: Network? = null
-    private var samplingStarted = false
 
     @Volatile
     private var sessionId: String? = null
@@ -69,6 +70,10 @@ class RecordingService : Service() {
                 stopRecording("stopped_by_user")
                 return START_NOT_STICKY
             }
+            ACTION_SETTINGS_CHANGED -> {
+                if (sessionId != null) scheduleSamples()
+                return START_STICKY
+            }
             ACTION_START -> startNewRecording()
             else -> resumeAfterSystemRestart()
         }
@@ -96,7 +101,7 @@ class RecordingService : Service() {
             emitRecordingState(true, sessionId)
             return
         }
-        database.pruneExpired(DEFAULT_RETENTION_DAYS)
+        database.pruneExpired(retentionDays())
         database.finishOpenSessions("interrupted")
         val session = database.createSession()
         sessionId = session.id
@@ -146,12 +151,11 @@ class RecordingService : Service() {
     }
 
     private fun scheduleSamples() {
-        if (samplingStarted) return
-        samplingStarted = true
-        worker.scheduleWithFixedDelay(
+        sampleTask?.cancel(false)
+        sampleTask = worker.scheduleWithFixedDelay(
             { sampleOnce() },
             0,
-            SAMPLE_INTERVAL_SECONDS,
+            probeIntervalSeconds().toLong(),
             TimeUnit.SECONDS,
         )
     }
@@ -166,8 +170,11 @@ class RecordingService : Service() {
         }
 
         val currentNetwork = networkSnapshot
+        val settings = database.getPreferences()
+        val host = settings[KEY_PROBE_HOST] ?: DEFAULT_HOST
+        val probeUrl = settings[KEY_PROBE_URL] ?: DEFAULT_URL
         val probe = if (currentNetwork.routeAvailable) {
-            NetworkProbe.run()
+            NetworkProbe.run(host, probeUrl)
         } else {
             mapOf(
                 "eventType" to "probe",
@@ -297,6 +304,16 @@ class RecordingService : Service() {
             (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || locationManager?.isLocationEnabled == true)
     }
 
+    private fun probeIntervalSeconds(): Int =
+        database.getPreferences()[KEY_PROBE_INTERVAL_SECONDS]?.toIntOrNull()
+            ?.coerceIn(MIN_PROBE_INTERVAL_SECONDS, MAX_PROBE_INTERVAL_SECONDS)
+            ?: DEFAULT_PROBE_INTERVAL_SECONDS
+
+    private fun retentionDays(): Int =
+        database.getPreferences()[KEY_RETENTION_DAYS]?.toIntOrNull()
+            ?.coerceIn(1, MAX_RETENTION_DAYS)
+            ?: DEFAULT_RETENTION_DAYS
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         notificationManager.createNotificationChannel(
@@ -390,9 +407,19 @@ class RecordingService : Service() {
         const val EXTRA_SESSION_ID = "session_id"
         const val PREFERENCES_FILE = "monitor_preferences"
         const val KEY_RECORDING_ACTIVE = "recording_active"
+        const val ACTION_SETTINGS_CHANGED = "ua.networkdiagnostics.vodafone_network_monitor.SETTINGS_CHANGED"
+        const val KEY_PROBE_INTERVAL_SECONDS = "probe_interval_seconds"
+        const val KEY_RETENTION_DAYS = "retention_days"
+        const val KEY_PROBE_HOST = "probe_host"
+        const val KEY_PROBE_URL = "probe_url"
+        const val DEFAULT_HOST = "connectivitycheck.gstatic.com"
+        const val DEFAULT_URL = "https://connectivitycheck.gstatic.com/generate_204"
+        const val DEFAULT_PROBE_INTERVAL_SECONDS = 30
+        const val MIN_PROBE_INTERVAL_SECONDS = 15
+        const val MAX_PROBE_INTERVAL_SECONDS = 300
+        const val MAX_RETENTION_DAYS = 90
         private const val NOTIFICATION_CHANNEL = "network_recording"
         private const val NOTIFICATION_ID = 4721
-        private const val SAMPLE_INTERVAL_SECONDS = 30L
         private const val RADIO_INTERVAL_MILLIS = 60_000L
         private const val DEFAULT_RETENTION_DAYS = 30
 
