@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import '../core/monitoring/network_monitor_controller.dart';
 import 'app_shell.dart';
 import 'app_theme.dart';
 
@@ -12,7 +13,20 @@ class NetworkMonitorApp extends StatefulWidget {
 }
 
 class _NetworkMonitorAppState extends State<NetworkMonitorApp> {
+  final _monitor = NetworkMonitorController();
   ThemeMode _themeMode = ThemeMode.dark;
+
+  @override
+  void initState() {
+    super.initState();
+    _monitor.start();
+  }
+
+  @override
+  void dispose() {
+    _monitor.dispose();
+    super.dispose();
+  }
 
   void _setThemeMode(ThemeMode themeMode) {
     setState(() => _themeMode = themeMode);
@@ -29,7 +43,11 @@ class _NetworkMonitorAppState extends State<NetworkMonitorApp> {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: _themeMode,
-      home: AppShell(themeMode: _themeMode, onThemeModeChanged: _setThemeMode),
+      home: AppShell(
+        themeMode: _themeMode,
+        onThemeModeChanged: _setThemeMode,
+        monitor: _monitor,
+      ),
     );
   }
 }

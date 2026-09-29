@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/monitoring/network_monitor_controller.dart';
 import '../features/charts/charts_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/permissions/permission_diagnostics_screen.dart';
@@ -10,11 +11,13 @@ class AppShell extends StatefulWidget {
   const AppShell({
     required this.themeMode,
     required this.onThemeModeChanged,
+    required this.monitor,
     super.key,
   });
 
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
+  final NetworkMonitorController monitor;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -34,7 +37,7 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final screens = [
-      const DashboardScreen(),
+      DashboardScreen(monitor: widget.monitor),
       const ChartsScreen(),
       const SessionsScreen(),
       SettingsScreen(
