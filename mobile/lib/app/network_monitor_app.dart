@@ -12,18 +12,29 @@ class NetworkMonitorApp extends StatefulWidget {
   State<NetworkMonitorApp> createState() => _NetworkMonitorAppState();
 }
 
-class _NetworkMonitorAppState extends State<NetworkMonitorApp> {
+class _NetworkMonitorAppState extends State<NetworkMonitorApp>
+    with WidgetsBindingObserver {
   final _monitor = NetworkMonitorController();
   ThemeMode _themeMode = ThemeMode.dark;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _monitor.setAppForeground(
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
+    );
     _monitor.start();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _monitor.setAppForeground(state == AppLifecycleState.resumed);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _monitor.dispose();
     super.dispose();
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/monitoring/network_monitor_controller.dart';
+import '../permissions/radio_info_card.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({required this.monitor, super.key});
@@ -96,10 +97,13 @@ class DashboardScreen extends StatelessWidget {
               _MetricCard(
                 icon: Icons.signal_cellular_alt,
                 label: 'Радиосигнал',
-                value: 'Нет данных',
+                value: monitor.radioRsrpDbm?.toString() ?? 'Нет данных',
+                unit: monitor.radioRsrpDbm == null ? null : 'dBm',
               ),
             ],
           ),
+          const SizedBox(height: 20),
+          RadioInfoCard(monitor: monitor),
           const SizedBox(height: 20),
           Card(
             child: Column(

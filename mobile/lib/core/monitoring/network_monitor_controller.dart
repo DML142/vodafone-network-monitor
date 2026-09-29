@@ -12,14 +12,18 @@ const _eventChannel = EventChannel(
 
 class NetworkMonitorController extends ChangeNotifier {
   static const probeInterval = Duration(seconds: 30);
+  static const radioInterval = Duration(seconds: 60);
   static const _defaultHost = 'connectivitycheck.gstatic.com';
   static const _defaultProbeUrl =
       'https://connectivitycheck.gstatic.com/generate_204';
 
   StreamSubscription<Object?>? _eventSubscription;
   Timer? _probeTimer;
+  Timer? _radioTimer;
   bool _started = false;
+  bool _appForeground = true;
   bool _probeInProgress = false;
+  bool _radioReadInProgress = false;
   bool routeAvailable = false;
   bool hasInternetCapability = false;
   bool osValidated = false;
@@ -40,6 +44,17 @@ class NetworkMonitorController extends ChangeNotifier {
   String? platformError;
   int totalProbes = 0;
   int failedProbes = 0;
+  bool radioPermissionGranted = false;
+  String radioStatus = 'permission_required';
+  String? radioAccessTechnology;
+  bool? radioRegistered;
+  int? radioSignalDbm;
+  int? radioRsrpDbm;
+  int? radioRsrqDb;
+  int? radioRssnrDb;
+  int? radioChannel;
+  int? radioAgeMillis;
+  DateTime? radioObservedAt;
 
   void start() {
     if (_started) return;
@@ -51,8 +66,30 @@ class NetworkMonitorController extends ChangeNotifier {
         notifyListeners();
       },
     );
+    if (_appForeground) _startForegroundSampling();
+  }
+
+  void setAppForeground(bool isForeground) {
+    if (_appForeground == isForeground) return;
+    _appForeground = isForeground;
+    if (isForeground && _started) {
+      _startForegroundSampling();
+    } else {
+      _probeTimer?.cancel();
+      _radioTimer?.cancel();
+      _probeTimer = null;
+      _radioTimer = null;
+    }
+  }
+
+  void _startForegroundSampling() {
     unawaited(runProbe());
+    unawaited(refreshRadio());
     _probeTimer = Timer.periodic(probeInterval, (_) => unawaited(runProbe()));
+    _radioTimer = Timer.periodic(
+      radioInterval,
+      (_) => unawaited(refreshRadio()),
+    );
   }
 
   Future<void> runProbe() async {
@@ -76,6 +113,99 @@ class NetworkMonitorController extends ChangeNotifier {
     }
   }
 
+  Future<void> refreshRadio() async {
+    if (_radioReadInProgress) return;
+    _radioReadInProgress = true;
+    try {
+      radioPermissionGranted =
+          await _methodChannel.invokeMethod<bool>('hasRadioPermission') ??
+          false;
+      if (!radioPermissionGranted) {
+        radioStatus = 'permission_required';
+        _clearRadioSnapshot();
+        notifyListeners();
+        return;
+      }
+
+      final values = await _methodChannel.invokeMapMethod<String, dynamic>(
+        'readRadioInfo',
+      );
+      if (values != null) _applyRadioInfo(values);
+    } on PlatformException {
+      radioStatus = 'read_error';
+      _clearRadioSnapshot();
+      notifyListeners();
+    } on MissingPluginException {
+      radioStatus = 'unsupported';
+      _clearRadioSnapshot();
+      notifyListeners();
+    } finally {
+      _radioReadInProgress = false;
+    }
+  }
+
+  Future<bool> requestRadioPermission() async {
+    try {
+      radioPermissionGranted =
+          await _methodChannel.invokeMethod<bool>('requestRadioPermission') ??
+          false;
+      if (radioPermissionGranted) {
+        await refreshRadio();
+      } else {
+        radioStatus = 'permission_denied';
+        _clearRadioSnapshot();
+        notifyListeners();
+      }
+      return radioPermissionGranted;
+    } on PlatformException {
+      radioStatus = 'permission_denied';
+      notifyListeners();
+      return false;
+    } on MissingPluginException {
+      radioStatus = 'unsupported';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> openAppSettings() async {
+    try {
+      await _methodChannel.invokeMethod<void>('openAppSettings');
+    } on PlatformException {
+      platformError = 'Не удалось открыть настройки разрешений';
+      notifyListeners();
+    } on MissingPluginException {
+      platformError = 'Настройки разрешений доступны только на Android';
+      notifyListeners();
+    }
+  }
+
+  void _applyRadioInfo(Map<String, dynamic> values) {
+    radioStatus = values['status'] as String? ?? 'read_error';
+    radioAccessTechnology = values['accessTechnology'] as String?;
+    radioRegistered = values['registered'] as bool?;
+    radioSignalDbm = values['signalDbm'] as int?;
+    radioRsrpDbm = values['rsrpDbm'] as int?;
+    radioRsrqDb = values['rsrqDb'] as int?;
+    radioRssnrDb = values['rssnrDb'] as int?;
+    radioChannel = values['channel'] as int?;
+    radioAgeMillis = values['ageMillis'] as int?;
+    radioObservedAt = _dateTime(values['observedAtUtc']);
+    notifyListeners();
+  }
+
+  void _clearRadioSnapshot() {
+    radioAccessTechnology = null;
+    radioRegistered = null;
+    radioSignalDbm = null;
+    radioRsrpDbm = null;
+    radioRsrqDb = null;
+    radioRssnrDb = null;
+    radioChannel = null;
+    radioAgeMillis = null;
+    radioObservedAt = null;
+  }
+
   void _onNativeEvent(Object? event) {
     if (event is! Map) return;
     final values = Map<String, dynamic>.from(event);
@@ -96,7 +226,9 @@ class NetworkMonitorController extends ChangeNotifier {
       );
     }
 
-    if (routeAvailable && (internetReachable == null || !internetReachable!)) {
+    if (_appForeground &&
+        routeAvailable &&
+        (internetReachable == null || !internetReachable!)) {
       unawaited(runProbe());
     }
     notifyListeners();
@@ -134,6 +266,8 @@ class NetworkMonitorController extends ChangeNotifier {
   @override
   void dispose() {
     _probeTimer?.cancel();
+    _radioTimer?.cancel();
+    _started = false;
     unawaited(_eventSubscription?.cancel());
     _started = false;
     super.dispose();
