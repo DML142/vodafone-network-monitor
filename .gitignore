@@ -1,0 +1,12 @@
+# Персональные журналы сети
+/vodafone-monitor-*/
+/mobile-watch-*/
+
+# Бинарные Android Platform Tools; скачиваются отдельно
+/platform-tools/
+
+# Python cache and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
