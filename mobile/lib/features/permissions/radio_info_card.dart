@@ -121,7 +121,14 @@ class RadioInfoCard extends StatelessWidget {
       'Нужно разрешение Android на точное местоположение',
     'permission_denied' => 'Разрешение не выдано',
     'permission_unavailable' => 'Android не разрешил чтение радиоданных',
-    'unsupported' => 'Устройство не вернуло поддержку телефонного радио',
+    'radio_feature_missing' =>
+      'Android не объявил поддержку сотового радио для этой прошивки',
+    'telephony_service_unavailable' => 'Android не предоставил службу Telephony',
+    'api_unsupported' => 'Прошивка не поддерживает CellInfo API',
+    'modem_timeout' => 'Модем не ответил на запрос радиоданных',
+    'modem_error' => 'Модем вернул ошибку при запросе радиоданных',
+    'cell_info_error' => 'Android не смог получить сведения о радиосети',
+    'unsupported' => 'Радиоданные недоступны на этом устройстве',
     'os_returned_no_cell_info' => 'Android пока не вернул сведения о соте',
     _ => 'Данные пока недоступны',
   };
