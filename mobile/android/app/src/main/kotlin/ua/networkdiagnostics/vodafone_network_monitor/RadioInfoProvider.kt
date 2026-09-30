@@ -14,7 +14,9 @@ import android.telephony.CellInfoNr
 import android.telephony.CellInfoTdscdma
 import android.telephony.CellInfoWcdma
 import android.telephony.CellIdentityNr
+import android.telephony.CellSignalStrengthLte
 import android.telephony.CellSignalStrengthNr
+import android.telephony.SignalStrength
 import android.telephony.TelephonyManager
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
@@ -53,17 +55,30 @@ class RadioInfoProvider(private val context: Context) {
                     executor,
                     object : TelephonyManager.CellInfoCallback() {
                         override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
-                            callback(snapshot(cellInfo, currentDataNetworkType(telephony)))
+                            val dataNetworkType = currentDataNetworkType(telephony)
+                            val cellSnapshot = snapshot(cellInfo, dataNetworkType)
+                            callback(
+                                if (cellSnapshot["reason"] == "cell_info_for_data_network_missing") {
+                                    signalStrengthSnapshot(telephony, dataNetworkType, cellSnapshot)
+                                } else {
+                                    cellSnapshot
+                                },
+                            )
                         }
 
                         override fun onError(errorCode: Int, detail: Throwable?) {
+                            val errorSnapshot = unavailable(
+                                when (errorCode) {
+                                    TelephonyManager.CellInfoCallback.ERROR_TIMEOUT -> "modem_timeout"
+                                    TelephonyManager.CellInfoCallback.ERROR_MODEM_ERROR -> "modem_error"
+                                    else -> "cell_info_error"
+                                },
+                            )
                             callback(
-                                unavailable(
-                                    when (errorCode) {
-                                        TelephonyManager.CellInfoCallback.ERROR_TIMEOUT -> "modem_timeout"
-                                        TelephonyManager.CellInfoCallback.ERROR_MODEM_ERROR -> "modem_error"
-                                        else -> "cell_info_error"
-                                    },
+                                signalStrengthSnapshot(
+                                    telephony,
+                                    currentDataNetworkType(telephony),
+                                    errorSnapshot,
                                 ),
                             )
                         }
@@ -171,6 +186,7 @@ class RadioInfoProvider(private val context: Context) {
             "available" to true,
             "status" to "available",
             "reason" to null,
+            "source" to "cell_info",
             "accessTechnology" to accessTechnology,
             "registered" to selected.isRegistered,
             "signalDbm" to signalDbm,
@@ -181,6 +197,80 @@ class RadioInfoProvider(private val context: Context) {
             "ageMillis" to ageMillis,
             "observedAtUtc" to (System.currentTimeMillis() - ageMillis),
         )
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun signalStrengthSnapshot(
+        telephony: TelephonyManager,
+        dataNetworkType: Int?,
+        fallback: Map<String, Any?>,
+    ): Map<String, Any?> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || dataNetworkType == null) {
+            return fallback
+        }
+
+        val noSignalFallback =
+            if (fallback["reason"] == "cell_info_for_data_network_missing") {
+                val reason = "cell_info_and_signal_strength_missing"
+                fallback + mapOf("status" to reason, "reason" to reason)
+            } else {
+                fallback
+            }
+
+        return try {
+            val signalStrength: SignalStrength = telephony.signalStrength ?: return noSignalFallback
+            val nowElapsed = SystemClock.elapsedRealtime()
+            val ageMillis = (nowElapsed - signalStrength.timestampMillis).coerceAtLeast(0L)
+            val accessTechnology = dataNetworkTechnology(dataNetworkType)
+            val signalDbm: Int?
+            val rsrpDbm: Int?
+            val rsrqDb: Int?
+            val rssnrDb: Int?
+
+            when (dataNetworkType) {
+                TelephonyManager.NETWORK_TYPE_LTE -> {
+                    val strength = signalStrength
+                        .getCellSignalStrengths(CellSignalStrengthLte::class.java)
+                        .firstOrNull() ?: return noSignalFallback
+                    signalDbm = available(strength.dbm)
+                    rsrpDbm = available(strength.rsrp)
+                    rsrqDb = available(strength.rsrq)
+                    rssnrDb = available(strength.rssnr)
+                }
+                TelephonyManager.NETWORK_TYPE_NR -> {
+                    val strength = signalStrength
+                        .getCellSignalStrengths(CellSignalStrengthNr::class.java)
+                        .firstOrNull() ?: return noSignalFallback
+                    signalDbm = available(strength.dbm)
+                    rsrpDbm = available(strength.csiRsrp)
+                    rsrqDb = available(strength.csiRsrq)
+                    rssnrDb = available(strength.csiSinr)
+                }
+                else -> return fallback
+            }
+
+            mapOf(
+                "available" to true,
+                "status" to "available",
+                "reason" to "cell_info_missing_signal_strength_used",
+                "source" to "signal_strength",
+                "accessTechnology" to accessTechnology,
+                "registered" to null,
+                "signalDbm" to signalDbm,
+                "rsrpDbm" to rsrpDbm,
+                "rsrqDb" to rsrqDb,
+                "rssnrDb" to rssnrDb,
+                "channel" to null,
+                "ageMillis" to ageMillis,
+                "observedAtUtc" to (System.currentTimeMillis() - ageMillis),
+            )
+        } catch (_: SecurityException) {
+            noSignalFallback
+        } catch (_: UnsupportedOperationException) {
+            noSignalFallback
+        } catch (_: RuntimeException) {
+            noSignalFallback
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -266,6 +356,7 @@ class RadioInfoProvider(private val context: Context) {
         "available" to false,
         "status" to reason,
         "reason" to reason,
+        "source" to null,
         "accessTechnology" to accessTechnology,
         "registered" to null,
         "signalDbm" to null,

@@ -52,10 +52,11 @@ class RadioInfoCard extends StatelessWidget {
                     runSpacing: 8,
                     children: [
                       _value('Тип', monitor.radioAccessTechnology ?? '—'),
-                      _value(
-                        'Регистрация',
-                        monitor.radioRegistered == true ? 'Да' : 'Нет',
-                      ),
+                      _value('Регистрация', switch (monitor.radioRegistered) {
+                        true => 'Да',
+                        false => 'Нет',
+                        null => 'Нет данных',
+                      }),
                       _value(
                         'Сигнал',
                         _withUnit(monitor.radioSignalDbm, 'dBm'),
@@ -73,7 +74,11 @@ class RadioInfoCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${hasLteMetrics ? 'Возраст берётся из отметки Android.' : 'RSRP, RSRQ и RSSNR Android предоставляет для LTE/5G; для ${monitor.radioAccessTechnology ?? 'этого типа сети'} эти показатели неприменимы.'} '
+                    '${monitor.radioSource == 'signal_strength'
+                        ? 'Android вернул параметры сигнала без сведений о соте; регистрация и канал недоступны.'
+                        : hasLteMetrics
+                        ? 'Возраст берётся из отметки Android.'
+                        : 'RSRP, RSRQ и RSSNR Android предоставляет для LTE/5G; для ${monitor.radioAccessTechnology ?? 'этого типа сети'} эти показатели неприменимы.'} '
                     'Идентификатор соты не запрашивается и не сохраняется.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
@@ -118,28 +123,40 @@ class RadioInfoCard extends StatelessWidget {
       monitor.radioStatus == 'permission_denied' ||
       monitor.radioStatus == 'permission_unavailable';
 
-  String get _statusDescription => switch (monitor.radioStatus) {
-    'available' =>
-      '${monitor.radioAccessTechnology ?? 'Сотовая сеть'} · '
-          '${monitor.radioRegistered == true ? 'зарегистрирована' : 'сота не зарегистрирована'}',
-    'permission_required' =>
-      'Нужно разрешение Android на точное местоположение',
-    'permission_denied' => 'Разрешение не выдано',
-    'permission_unavailable' => 'Android не разрешил чтение радиоданных',
-    'radio_feature_missing' =>
-      'Android не объявил поддержку сотового радио для этой прошивки',
-    'telephony_service_unavailable' =>
-      'Android не предоставил службу Telephony',
-    'api_unsupported' => 'Прошивка не поддерживает CellInfo API',
-    'modem_timeout' => 'Модем не ответил на запрос радиоданных',
-    'modem_error' => 'Модем вернул ошибку при запросе радиоданных',
-    'cell_info_error' => 'Android не смог получить сведения о радиосети',
-    'unsupported' => 'Радиоданные недоступны на этом устройстве',
-    'os_returned_no_cell_info' => 'Android пока не вернул сведения о соте',
-    'cell_info_for_data_network_missing' =>
-      'Сеть данных ${monitor.radioAccessTechnology ?? 'сотовая'}; Android не вернул сведения о соответствующей радиоячейке',
-    _ => 'Данные пока недоступны',
-  };
+  String get _statusDescription {
+    if (monitor.radioStatus == 'available') {
+      final details = monitor.radioSource == 'signal_strength'
+          ? 'измерения сигнала'
+          : switch (monitor.radioRegistered) {
+              true => 'сота зарегистрирована',
+              false => 'сота не зарегистрирована',
+              null => 'статус соты неизвестен',
+            };
+      return '${monitor.radioAccessTechnology ?? 'Сотовая сеть'} · $details';
+    }
+
+    return switch (monitor.radioStatus) {
+      'permission_required' =>
+        'Нужно разрешение Android на точное местоположение',
+      'permission_denied' => 'Разрешение не выдано',
+      'permission_unavailable' => 'Android не разрешил чтение радиоданных',
+      'radio_feature_missing' =>
+        'Android не объявил поддержку сотового радио для этой прошивки',
+      'telephony_service_unavailable' =>
+        'Android не предоставил службу Telephony',
+      'api_unsupported' => 'Прошивка не поддерживает CellInfo API',
+      'modem_timeout' => 'Модем не ответил на запрос радиоданных',
+      'modem_error' => 'Модем вернул ошибку при запросе радиоданных',
+      'cell_info_error' => 'Android не смог получить сведения о радиосети',
+      'unsupported' => 'Радиоданные недоступны на этом устройстве',
+      'os_returned_no_cell_info' => 'Android пока не вернул сведения о соте',
+      'cell_info_for_data_network_missing' =>
+        'Сеть данных ${monitor.radioAccessTechnology ?? 'сотовая'}; Android не вернул сведения о соответствующей радиоячейке',
+      'cell_info_and_signal_strength_missing' =>
+        'Сеть данных ${monitor.radioAccessTechnology ?? 'сотовая'}; Android не вернул ни параметры сигнала, ни сведения о ячейке',
+      _ => 'Данные пока недоступны',
+    };
+  }
 
   static Widget _value(String label, String value) => Text('$label: $value');
 

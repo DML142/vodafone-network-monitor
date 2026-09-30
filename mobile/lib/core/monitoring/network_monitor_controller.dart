@@ -51,6 +51,7 @@ class NetworkMonitorController extends ChangeNotifier {
   bool radioPermissionGranted = false;
   String radioStatus = 'permission_required';
   String? radioAccessTechnology;
+  String? radioSource;
   bool? radioRegistered;
   int? radioSignalDbm;
   int? radioRsrpDbm;
@@ -474,6 +475,7 @@ class NetworkMonitorController extends ChangeNotifier {
   void _applyRadioInfo(Map<String, dynamic> values) {
     radioStatus = values['status'] as String? ?? 'read_error';
     radioAccessTechnology = values['accessTechnology'] as String?;
+    radioSource = values['source'] as String?;
     radioRegistered = values['registered'] as bool?;
     radioSignalDbm = values['signalDbm'] as int?;
     radioRsrpDbm = values['rsrpDbm'] as int?;
@@ -487,6 +489,7 @@ class NetworkMonitorController extends ChangeNotifier {
 
   void _clearRadioSnapshot() {
     radioAccessTechnology = null;
+    radioSource = null;
     radioRegistered = null;
     radioSignalDbm = null;
     radioRsrpDbm = null;
