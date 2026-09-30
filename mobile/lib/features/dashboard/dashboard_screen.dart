@@ -97,8 +97,8 @@ class DashboardScreen extends StatelessWidget {
               _MetricCard(
                 icon: Icons.signal_cellular_alt,
                 label: 'Радиосигнал',
-                value: monitor.radioRsrpDbm?.toString() ?? 'Нет данных',
-                unit: monitor.radioRsrpDbm == null ? null : 'dBm',
+                value: monitor.radioSignalDbm?.toString() ?? 'Нет данных',
+                unit: monitor.radioSignalDbm == null ? null : 'dBm',
               ),
             ],
           ),
@@ -299,7 +299,7 @@ class DashboardScreen extends StatelessWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Запустить скоростной тест?'),
-        content: const Text(
+        content: Text(
           'Для каждого направления будет передано до 10 МБ сгенерированных '
           'данных на speed.cloudflare.com. Cloudflare увидит IP-адрес сетевого '
           'соединения; файлы и журналы приложения не отправляются. Тест использует '
@@ -320,18 +320,36 @@ class DashboardScreen extends StatelessWidget {
     if (accepted != true || !context.mounted) return;
     final result = await monitor.runSpeedTest();
     if (!context.mounted) return;
-    final download = result?['downloadMbps'];
-    final upload = result?['uploadMbps'];
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           result == null
               ? monitor.platformError ?? 'Скоростной тест не завершился.'
-              : 'Скачивание: ${_speedValue(download)} Мбит/с · '
-                    'отдача: ${_speedValue(upload)} Мбит/с',
+              : _speedTestSummary(result),
         ),
       ),
     );
+  }
+
+  static String _speedTestSummary(Map<String, dynamic> result) {
+    String direction(String label, String key, String errorKey) {
+      final value = result[key];
+      if (value is num) return '$label: ${_speedValue(value)} Мбит/с';
+      final error = result[errorKey];
+      final description = switch (error) {
+        'timeout' => 'истекло время ожидания',
+        'tls_error' => 'ошибка защищённого соединения',
+        'incomplete_download' => 'неполная передача',
+        final String value when value.startsWith('http_') =>
+          'ошибка сервера ${value.substring(5)}',
+        final String value when value.isNotEmpty => value,
+        _ => 'нет результата',
+      };
+      return '$label: $description';
+    }
+
+    return '${direction('Скачивание', 'downloadMbps', 'downloadError')} · '
+        '${direction('Отдача', 'uploadMbps', 'uploadError')}';
   }
 
   static String _speedValue(Object? value) =>
@@ -347,11 +365,13 @@ class DashboardScreen extends StatelessWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Начать сетевую запись?'),
-        content: const Text(
+        content: Text(
           'Приложение будет сохранять локально состояние сети и лёгкую '
-          'HTTPS-проверку раз в 30 секунд. Радиоданные добавляются только '
-          'если вы разрешили их отдельно. Постоянное уведомление покажет '
-          'активную запись и позволит остановить её. Скоростной тест запускается отдельно.',
+          'HTTPS-проверку с выбранным интервалом ${monitor.probeIntervalSeconds} с. '
+          'Радиоданные добавляются только если вы разрешили их отдельно. '
+          'Автотест скорости можно включить в настройках; он передаёт до '
+          '20 МБ за замер. Постоянное уведомление покажет активную запись '
+          'и позволит остановить её.',
         ),
         actions: [
           TextButton(

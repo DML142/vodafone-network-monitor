@@ -33,7 +33,9 @@ class RecordingService : Service() {
     private val radioInfo by lazy { RadioInfoProvider(applicationContext) }
     private lateinit var database: MonitorDatabase
     private lateinit var worker: ScheduledExecutorService
+    private lateinit var speedTestWorker: ScheduledExecutorService
     private var sampleTask: ScheduledFuture<*>? = null
+    private var autoSpeedTestTask: ScheduledFuture<*>? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var activeNetwork: Network? = null
 
@@ -59,6 +61,7 @@ class RecordingService : Service() {
         isRunning = true
         database = MonitorDatabase(applicationContext)
         worker = Executors.newSingleThreadScheduledExecutor()
+        speedTestWorker = Executors.newSingleThreadScheduledExecutor()
         createNotificationChannel()
         enterForeground()
         registerNetworkCallback()
@@ -87,7 +90,10 @@ class RecordingService : Service() {
             runCatching { connectivityManager.unregisterNetworkCallback(it) }
         }
         networkCallback = null
+        sampleTask?.cancel(false)
+        autoSpeedTestTask?.cancel(false)
         worker.shutdownNow()
+        speedTestWorker.shutdownNow()
         currentSessionId = null
         isRunning = false
         if (!explicitStop) emitRecordingState(false, sessionId)
@@ -146,6 +152,8 @@ class RecordingService : Service() {
         currentSessionId = null
         sessionId = null
         worker.shutdownNow()
+        autoSpeedTestTask?.cancel(false)
+        speedTestWorker.shutdownNow()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -156,6 +164,30 @@ class RecordingService : Service() {
             { sampleOnce() },
             0,
             probeIntervalSeconds().toLong(),
+            TimeUnit.SECONDS,
+        )
+        scheduleAutoSpeedTests()
+    }
+
+    private fun scheduleAutoSpeedTests() {
+        autoSpeedTestTask?.cancel(false)
+        autoSpeedTestTask = null
+        val preferences = database.getPreferences()
+        if (preferences[KEY_AUTO_SPEED_TEST_ENABLED]?.toBooleanStrictOrNull() != true) return
+        val intervalSeconds = (preferences[KEY_AUTO_SPEED_TEST_INTERVAL_SECONDS]
+            ?.toIntOrNull()
+            ?: DEFAULT_AUTO_SPEED_TEST_INTERVAL_SECONDS)
+            .coerceIn(MIN_AUTO_SPEED_TEST_INTERVAL_SECONDS, MAX_AUTO_SPEED_TEST_INTERVAL_SECONDS)
+        val scheduledSessionId = sessionId ?: return
+        autoSpeedTestTask = speedTestWorker.scheduleWithFixedDelay(
+            {
+                if (sessionId != scheduledSessionId) return@scheduleWithFixedDelay
+                val measurement = SpeedTestRunner.run()
+                if (sessionId != scheduledSessionId) return@scheduleWithFixedDelay
+                database.addMeasurement(scheduledSessionId, measurement)
+            },
+            intervalSeconds.toLong(),
+            intervalSeconds.toLong(),
             TimeUnit.SECONDS,
         )
     }
@@ -409,6 +441,8 @@ class RecordingService : Service() {
         const val KEY_RECORDING_ACTIVE = "recording_active"
         const val ACTION_SETTINGS_CHANGED = "ua.networkdiagnostics.vodafone_network_monitor.SETTINGS_CHANGED"
         const val KEY_PROBE_INTERVAL_SECONDS = "probe_interval_seconds"
+        const val KEY_AUTO_SPEED_TEST_ENABLED = "auto_speed_test_enabled"
+        const val KEY_AUTO_SPEED_TEST_INTERVAL_SECONDS = "auto_speed_test_interval_seconds"
         const val KEY_RETENTION_DAYS = "retention_days"
         const val KEY_PROBE_HOST = "probe_host"
         const val KEY_PROBE_URL = "probe_url"
@@ -417,6 +451,9 @@ class RecordingService : Service() {
         const val DEFAULT_PROBE_INTERVAL_SECONDS = 30
         const val MIN_PROBE_INTERVAL_SECONDS = 15
         const val MAX_PROBE_INTERVAL_SECONDS = 300
+        const val DEFAULT_AUTO_SPEED_TEST_INTERVAL_SECONDS = 30
+        const val MIN_AUTO_SPEED_TEST_INTERVAL_SECONDS = 30
+        const val MAX_AUTO_SPEED_TEST_INTERVAL_SECONDS = 1800
         const val MAX_RETENTION_DAYS = 90
         private const val NOTIFICATION_CHANNEL = "network_recording"
         private const val NOTIFICATION_ID = 4721

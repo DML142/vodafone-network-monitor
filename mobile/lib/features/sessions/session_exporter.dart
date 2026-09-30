@@ -25,6 +25,8 @@ class SessionExporter {
     'radio_age_ms',
     'download_mbps',
     'upload_mbps',
+    'download_error',
+    'upload_error',
   ];
 
   static String encodeJson(
@@ -34,11 +36,13 @@ class SessionExporter {
     'exported_at_utc': DateTime.now().toUtc().toIso8601String(),
     'session': session,
     'measurements': measurements
-        .map((row) => {
-          for (final entry in row.entries)
-            if (entry.key != 'id') entry.key: entry.value,
-          'observed_at_local': _localIso(row['observed_at_utc']),
-        })
+        .map(
+          (row) => {
+            for (final entry in row.entries)
+              if (entry.key != 'id') entry.key: entry.value,
+            'observed_at_local': _localIso(row['observed_at_utc']),
+          },
+        )
         .toList(),
   });
 
@@ -48,7 +52,9 @@ class SessionExporter {
   ) {
     final buffer = StringBuffer()
       ..writeln('# session_id,${_csv(session['id'])}')
-      ..writeln('# started_at_local,${_csv(_localIso(session['startedAtUtc']))}')
+      ..writeln(
+        '# started_at_local,${_csv(_localIso(session['startedAtUtc']))}',
+      )
       ..writeln('# ended_at_local,${_csv(_localIso(session['endedAtUtc']))}')
       ..writeln(fields.map(_csv).join(','));
     for (final row in measurements) {

@@ -13,6 +13,9 @@ class RadioInfoCard extends StatelessWidget {
       animation: monitor,
       builder: (context, _) {
         final hasData = monitor.radioStatus == 'available';
+        final hasLteMetrics =
+            monitor.radioAccessTechnology == 'LTE' ||
+            monitor.radioAccessTechnology == 'NR';
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -57,9 +60,11 @@ class RadioInfoCard extends StatelessWidget {
                         'Сигнал',
                         _withUnit(monitor.radioSignalDbm, 'dBm'),
                       ),
-                      _value('RSRP', _withUnit(monitor.radioRsrpDbm, 'dBm')),
-                      _value('RSRQ', _withUnit(monitor.radioRsrqDb, 'dB')),
-                      _value('RSSNR', _withUnit(monitor.radioRssnrDb, 'dB')),
+                      if (hasLteMetrics) ...[
+                        _value('RSRP', _withUnit(monitor.radioRsrpDbm, 'dBm')),
+                        _value('RSRQ', _withUnit(monitor.radioRsrqDb, 'dB')),
+                        _value('RSSNR', _withUnit(monitor.radioRssnrDb, 'dB')),
+                      ],
                       _value(
                         'Канал',
                         monitor.radioChannel?.toString() ?? 'Нет данных',
@@ -68,8 +73,8 @@ class RadioInfoCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Возраст берётся из отметки Android. Идентификатор соты '
-                    'не запрашивается и не сохраняется.',
+                    '${hasLteMetrics ? 'Возраст берётся из отметки Android.' : 'RSRP, RSRQ и RSSNR Android предоставляет для LTE/5G; для ${monitor.radioAccessTechnology ?? 'этого типа сети'} эти показатели неприменимы.'} '
+                    'Идентификатор соты не запрашивается и не сохраняется.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ] else if (_needsPermission) ...[
@@ -123,7 +128,8 @@ class RadioInfoCard extends StatelessWidget {
     'permission_unavailable' => 'Android не разрешил чтение радиоданных',
     'radio_feature_missing' =>
       'Android не объявил поддержку сотового радио для этой прошивки',
-    'telephony_service_unavailable' => 'Android не предоставил службу Telephony',
+    'telephony_service_unavailable' =>
+      'Android не предоставил службу Telephony',
     'api_unsupported' => 'Прошивка не поддерживает CellInfo API',
     'modem_timeout' => 'Модем не ответил на запрос радиоданных',
     'modem_error' => 'Модем вернул ошибку при запросе радиоданных',

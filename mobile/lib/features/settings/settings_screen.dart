@@ -23,6 +23,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _urlController;
   late int _intervalSeconds;
   late int _retentionDays;
+  late bool _autoSpeedTestEnabled;
+  late int _autoSpeedTestIntervalSeconds;
+  bool _formEdited = false;
   bool _saving = false;
 
   @override
@@ -32,6 +35,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _urlController = TextEditingController(text: widget.monitor.probeUrl);
     _intervalSeconds = widget.monitor.probeIntervalSeconds;
     _retentionDays = widget.monitor.retentionDays;
+    _autoSpeedTestEnabled = widget.monitor.autoSpeedTestEnabled;
+    _autoSpeedTestIntervalSeconds = widget.monitor.autoSpeedTestIntervalSeconds;
     widget.monitor.addListener(_syncSavedValues);
   }
 
@@ -46,11 +51,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _syncSavedValues() {
+    if (_formEdited) return;
     final monitor = widget.monitor;
     if (_hostController.text == monitor.probeHost &&
         _urlController.text == monitor.probeUrl &&
         _intervalSeconds == monitor.probeIntervalSeconds &&
-        _retentionDays == monitor.retentionDays) {
+        _retentionDays == monitor.retentionDays &&
+        _autoSpeedTestEnabled == monitor.autoSpeedTestEnabled &&
+        _autoSpeedTestIntervalSeconds == monitor.autoSpeedTestIntervalSeconds) {
       return;
     }
     setState(() {
@@ -58,6 +66,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _urlController.text = monitor.probeUrl;
       _intervalSeconds = monitor.probeIntervalSeconds;
       _retentionDays = monitor.retentionDays;
+      _autoSpeedTestEnabled = monitor.autoSpeedTestEnabled;
+      _autoSpeedTestIntervalSeconds = monitor.autoSpeedTestIntervalSeconds;
     });
   }
 
@@ -124,9 +134,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       )
                       .toList(),
                   onChanged: (value) {
-                    if (value != null) setState(() => _intervalSeconds = value);
+                    if (value != null) {
+                      setState(() {
+                        _intervalSeconds = value;
+                        _formEdited = true;
+                      });
+                    }
                   },
                 ),
+                const SizedBox(height: 12),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _autoSpeedTestEnabled,
+                  title: const Text('Автоматически измерять скорость'),
+                  subtitle: const Text(
+                    'Добавлять скачивание и отдачу в активную запись.',
+                  ),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _autoSpeedTestEnabled = value;
+                        _formEdited = true;
+                      });
+                    }
+                  },
+                ),
+                if (_autoSpeedTestEnabled) ...[
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<int>(
+                    initialValue: _autoSpeedTestIntervalSeconds,
+                    decoration: const InputDecoration(
+                      labelText: 'Интервал автотеста скорости',
+                    ),
+                    items: const [30, 60, 120, 300, 600, 900, 1800]
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(_durationLabel(value)),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          _autoSpeedTestIntervalSeconds = value;
+                          _formEdited = true;
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Один тест передаёт до 10 МБ на скачивание и до 10 МБ '
+                    'на отдачу. При интервале ${_durationLabel(_autoSpeedTestIntervalSeconds)} '
+                    'предел — до ${(72000 / _autoSpeedTestIntervalSeconds).round()} МБ/ч. '
+                    'Автотест запускается только во время активной записи.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
                   initialValue: _retentionDays,
@@ -142,12 +207,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       )
                       .toList(),
                   onChanged: (value) {
-                    if (value != null) setState(() => _retentionDays = value);
+                    if (value != null) {
+                      setState(() {
+                        _retentionDays = value;
+                        _formEdited = true;
+                      });
+                    }
                   },
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _hostController,
+                  onChanged: (_) => _formEdited = true,
                   keyboardType: TextInputType.url,
                   decoration: const InputDecoration(
                     labelText: 'DNS-имя контрольного узла',
@@ -157,6 +228,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _urlController,
+                  onChanged: (_) => _formEdited = true,
                   keyboardType: TextInputType.url,
                   decoration: const InputDecoration(
                     labelText: 'HTTPS URL контрольного узла',
@@ -193,7 +265,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Данные хранятся локально'),
             subtitle: const Text(
               'Идентификаторы сот, телефона и SIM не записываются. '
-              'Скоростной тест запускается отдельно и вручную.',
+              'Проверки доступа в интернет используют контрольный узел. '
+              'Скоростной тест расходует мобильный трафик; автоматический '
+              'режим выключен по умолчанию.',
             ),
           ),
         ),
@@ -205,6 +279,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _saving = true);
     final saved = await widget.monitor.saveSettings(
       newProbeIntervalSeconds: _intervalSeconds,
+      newAutoSpeedTestEnabled: _autoSpeedTestEnabled,
+      newAutoSpeedTestIntervalSeconds: _autoSpeedTestIntervalSeconds,
       newRetentionDays: _retentionDays,
       newProbeHost: _hostController.text.trim(),
       newProbeUrl: _urlController.text.trim(),
@@ -215,15 +291,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     );
     if (!mounted) return;
+    if (saved) _formEdited = false;
     setState(() => _saving = false);
+    if (saved) _syncSavedValues();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           saved
               ? 'Настройки сохранены на устройстве.'
-              : widget.monitor.platformError ?? 'Не удалось сохранить настройки.',
+              : widget.monitor.platformError ??
+                    'Не удалось сохранить настройки.',
         ),
       ),
     );
   }
+
+  static String _durationLabel(int seconds) =>
+      seconds < 60 ? '$seconds секунд' : '${seconds ~/ 60} мин';
 }

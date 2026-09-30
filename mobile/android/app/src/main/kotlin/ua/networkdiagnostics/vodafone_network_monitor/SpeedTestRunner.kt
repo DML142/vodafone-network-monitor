@@ -14,6 +14,7 @@ object SpeedTestRunner {
     private const val READ_TIMEOUT_MILLIS = 90_000
     private const val BUFFER_SIZE = 32 * 1024
 
+    @Synchronized
     fun run(): Map<String, Any?> {
         val testedAtUtc = System.currentTimeMillis()
         val download = measureDownload()
