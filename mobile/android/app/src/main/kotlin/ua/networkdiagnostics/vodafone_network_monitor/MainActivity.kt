@@ -286,7 +286,7 @@ class MainActivity : FlutterActivity() {
 
     private fun runSpeedTest(result: MethodChannel.Result) {
         speedTestExecutor.execute {
-            val measurement = SpeedTestRunner.run()
+            val measurement = SpeedTestRunner.run(this@MainActivity)
             try {
                 val activeSession = if (RecordingService.isRunning) database.currentSession() else null
                 if (activeSession == null) {

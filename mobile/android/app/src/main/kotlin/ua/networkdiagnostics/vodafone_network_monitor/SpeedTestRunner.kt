@@ -1,10 +1,18 @@
 package ua.networkdiagnostics.vodafone_network_monitor
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.SystemClock
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Random
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 object SpeedTestRunner {
     const val MAX_BYTES_PER_DIRECTION = 10_000_000
@@ -15,27 +23,74 @@ object SpeedTestRunner {
     private const val BUFFER_SIZE = 32 * 1024
 
     @Synchronized
-    fun run(): Map<String, Any?> {
+    fun run(context: Context): Map<String, Any?> {
         val testedAtUtc = System.currentTimeMillis()
-        val download = measureDownload()
-        val upload = measureUpload()
-        return mapOf(
-            "eventType" to "speed_test",
-            "observedAtUtc" to testedAtUtc,
-            "downloadMbps" to download.first,
-            "downloadError" to download.second,
-            "downloadBytes" to if (download.first == null) 0 else MAX_BYTES_PER_DIRECTION,
-            "uploadMbps" to upload.first,
-            "uploadError" to upload.second,
-            "uploadBytes" to if (upload.first == null) 0 else MAX_BYTES_PER_DIRECTION,
-            "maxBytesPerDirection" to MAX_BYTES_PER_DIRECTION,
-            "target" to "speed.cloudflare.com",
-        )
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val networkRequest = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        val networkRef = AtomicReference<Network?>()
+        val networkAvailable = CountDownLatch(1)
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                networkRef.set(network)
+                networkAvailable.countDown()
+            }
+
+            override fun onUnavailable() {
+                networkAvailable.countDown()
+            }
+        }
+        var requestRegistered = false
+        try {
+            connectivityManager.requestNetwork(networkRequest, callback, CONNECT_TIMEOUT_MILLIS)
+            requestRegistered = true
+            networkAvailable.await(CONNECT_TIMEOUT_MILLIS + 1_000L, TimeUnit.MILLISECONDS)
+            val cellularNetwork = networkRef.get()
+                ?: return failedMeasurement(testedAtUtc, "cellular_unavailable")
+            val download = measureDownload(cellularNetwork)
+            val upload = measureUpload(cellularNetwork)
+            return mapOf(
+                "eventType" to "speed_test",
+                "observedAtUtc" to testedAtUtc,
+                "transport" to "cellular",
+                "downloadMbps" to download.first,
+                "downloadError" to download.second,
+                "downloadBytes" to if (download.first == null) 0 else MAX_BYTES_PER_DIRECTION,
+                "uploadMbps" to upload.first,
+                "uploadError" to upload.second,
+                "uploadBytes" to if (upload.first == null) 0 else MAX_BYTES_PER_DIRECTION,
+                "maxBytesPerDirection" to MAX_BYTES_PER_DIRECTION,
+                "target" to "speed.cloudflare.com",
+            )
+        } catch (error: Exception) {
+            return failedMeasurement(testedAtUtc, reason(error))
+        } finally {
+            if (requestRegistered) {
+                runCatching { connectivityManager.unregisterNetworkCallback(callback) }
+            }
+        }
     }
 
-    private fun measureDownload(): Pair<Double?, String?> {
+    private fun failedMeasurement(testedAtUtc: Long, error: String): Map<String, Any?> = mapOf(
+        "eventType" to "speed_test",
+        "observedAtUtc" to testedAtUtc,
+        "transport" to "cellular",
+        "downloadMbps" to null,
+        "downloadError" to error,
+        "downloadBytes" to 0,
+        "uploadMbps" to null,
+        "uploadError" to error,
+        "uploadBytes" to 0,
+        "maxBytesPerDirection" to MAX_BYTES_PER_DIRECTION,
+        "target" to "speed.cloudflare.com",
+    )
+
+    private fun measureDownload(network: Network): Pair<Double?, String?> {
         val connection = try {
-            (URL(DOWNLOAD_URL).openConnection() as HttpURLConnection).apply {
+            (network.openConnection(URL(DOWNLOAD_URL)) as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = CONNECT_TIMEOUT_MILLIS
                 readTimeout = READ_TIMEOUT_MILLIS
@@ -70,9 +125,9 @@ object SpeedTestRunner {
         }
     }
 
-    private fun measureUpload(): Pair<Double?, String?> {
+    private fun measureUpload(network: Network): Pair<Double?, String?> {
         val connection = try {
-            (URL(UPLOAD_URL).openConnection() as HttpURLConnection).apply {
+            (network.openConnection(URL(UPLOAD_URL)) as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = CONNECT_TIMEOUT_MILLIS
                 readTimeout = READ_TIMEOUT_MILLIS
@@ -122,6 +177,7 @@ object SpeedTestRunner {
     private fun reason(error: Exception): String = when (error) {
         is java.net.SocketTimeoutException -> "timeout"
         is javax.net.ssl.SSLException -> "tls_error"
+        is SecurityException -> "cellular_permission_denied"
         is IOException -> error.message ?: "connection_error"
         else -> "connection_error"
     }

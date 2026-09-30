@@ -263,7 +263,8 @@ class DashboardScreen extends StatelessWidget {
             subtitle: Text(
               result == null
                   ? 'Разовая проверка скачивания и отдачи.'
-                  : '↓ ${_speedValue(result['downloadMbps'])} Мбит/с · '
+                  : '${result['transport'] == 'cellular' ? 'Сотовая сеть · ' : ''}'
+                        '↓ ${_speedValue(result['downloadMbps'])} Мбит/с · '
                         '↑ ${_speedValue(result['uploadMbps'])} Мбит/с',
             ),
           ),
@@ -303,7 +304,8 @@ class DashboardScreen extends StatelessWidget {
           'Для каждого направления будет передано до 10 МБ сгенерированных '
           'данных на speed.cloudflare.com. Cloudflare увидит IP-адрес сетевого '
           'соединения; файлы и журналы приложения не отправляются. Тест использует '
-          'мобильный трафик, если сейчас подключена мобильная сеть. Результат сохранится в истории.',
+          'тест явно запрашивает сотовую сеть, если мобильный интернет включён; '
+          'Wi-Fi в измерение не попадёт. Результат сохранится в истории.',
         ),
         actions: [
           TextButton(
@@ -337,6 +339,8 @@ class DashboardScreen extends StatelessWidget {
       if (value is num) return '$label: ${_speedValue(value)} Мбит/с';
       final error = result[errorKey];
       final description = switch (error) {
+        'cellular_unavailable' => 'сотовый интернет недоступен',
+        'cellular_permission_denied' => 'Android запретил выбор сотовой сети',
         'timeout' => 'истекло время ожидания',
         'tls_error' => 'ошибка защищённого соединения',
         'incomplete_download' => 'неполная передача',
@@ -348,7 +352,8 @@ class DashboardScreen extends StatelessWidget {
       return '$label: $description';
     }
 
-    return '${direction('Скачивание', 'downloadMbps', 'downloadError')} · '
+    final transport = result['transport'] == 'cellular' ? 'Сотовая сеть · ' : '';
+    return '$transport${direction('Скачивание', 'downloadMbps', 'downloadError')} · '
         '${direction('Отдача', 'uploadMbps', 'uploadError')}';
   }
 

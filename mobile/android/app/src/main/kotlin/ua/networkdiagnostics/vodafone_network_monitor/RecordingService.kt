@@ -182,7 +182,7 @@ class RecordingService : Service() {
         autoSpeedTestTask = speedTestWorker.scheduleWithFixedDelay(
             {
                 if (sessionId != scheduledSessionId) return@scheduleWithFixedDelay
-                val measurement = SpeedTestRunner.run()
+                val measurement = SpeedTestRunner.run(this@RecordingService)
                 if (sessionId != scheduledSessionId) return@scheduleWithFixedDelay
                 database.addMeasurement(scheduledSessionId, measurement)
             },

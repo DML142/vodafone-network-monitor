@@ -148,7 +148,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: _autoSpeedTestEnabled,
                   title: const Text('Автоматически измерять скорость'),
                   subtitle: const Text(
-                    'Добавлять скачивание и отдачу в активную запись.',
+                    'Измерять сотовые скачивание и отдачу в активной записи.',
                   ),
                   onChanged: (value) {
                     if (value != null) {

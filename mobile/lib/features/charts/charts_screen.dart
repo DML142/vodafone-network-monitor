@@ -321,6 +321,12 @@ class _ChartsScreenState extends State<ChartsScreen> {
   }
 
   String _speedErrorDescription(String error) {
+    if (error == 'cellular_unavailable') {
+      return 'сотовый интернет недоступен; проверьте, что мобильные данные включены';
+    }
+    if (error == 'cellular_permission_denied') {
+      return 'Android не разрешил выбрать сотовую сеть';
+    }
     if (error == 'timeout') {
       return 'истекло время ожидания; медленной сети могло не хватить времени';
     }
