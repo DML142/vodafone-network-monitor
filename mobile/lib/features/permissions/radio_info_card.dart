@@ -136,6 +136,8 @@ class RadioInfoCard extends StatelessWidget {
     'cell_info_error' => 'Android не смог получить сведения о радиосети',
     'unsupported' => 'Радиоданные недоступны на этом устройстве',
     'os_returned_no_cell_info' => 'Android пока не вернул сведения о соте',
+    'cell_info_for_data_network_missing' =>
+      'Сеть данных ${monitor.radioAccessTechnology ?? 'сотовая'}; Android не вернул сведения о соответствующей радиоячейке',
     _ => 'Данные пока недоступны',
   };
 

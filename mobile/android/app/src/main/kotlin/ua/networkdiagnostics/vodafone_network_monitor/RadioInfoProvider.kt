@@ -53,7 +53,7 @@ class RadioInfoProvider(private val context: Context) {
                     executor,
                     object : TelephonyManager.CellInfoCallback() {
                         override fun onCellInfo(cellInfo: MutableList<CellInfo>) {
-                            callback(snapshot(cellInfo))
+                            callback(snapshot(cellInfo, currentDataNetworkType(telephony)))
                         }
 
                         override fun onError(errorCode: Int, detail: Throwable?) {
@@ -94,11 +94,25 @@ class RadioInfoProvider(private val context: Context) {
         }
     }
 
-    private fun snapshot(cells: List<CellInfo>): Map<String, Any?> {
-        val selected = cells.firstOrNull { it.isRegistered }
-            ?: cells.firstOrNull { it is CellInfoLte || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && it is CellInfoNr) }
-            ?: cells.firstOrNull()
-            ?: return unavailable("os_returned_no_cell_info")
+    private fun snapshot(
+        cells: List<CellInfo>,
+        dataNetworkType: Int? = null,
+    ): Map<String, Any?> {
+        val dataCellMatcher = dataNetworkType?.let(::cellMatcherForDataNetwork)
+        val selected = if (dataCellMatcher != null) {
+            cells.firstOrNull { dataCellMatcher(it) && it.isRegistered }
+                ?: cells.firstOrNull(dataCellMatcher)
+                ?: return unavailable(
+                    "cell_info_for_data_network_missing",
+                    dataNetworkTechnology(dataNetworkType),
+                )
+        } else {
+            cells.firstOrNull { it.isRegistered && isLteOrNr(it) }
+                ?: cells.firstOrNull { it.isRegistered }
+                ?: cells.firstOrNull(::isLteOrNr)
+                ?: cells.firstOrNull()
+                ?: return unavailable("os_returned_no_cell_info")
+        }
 
         val nowElapsed = SystemClock.elapsedRealtime()
         val ageMillis = (nowElapsed - timestampMillis(selected)).coerceAtLeast(0L)
@@ -169,6 +183,72 @@ class RadioInfoProvider(private val context: Context) {
         )
     }
 
+    @SuppressLint("MissingPermission")
+    private fun currentDataNetworkType(telephony: TelephonyManager): Int? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+        return try {
+            telephony.dataNetworkType.takeIf { it != TelephonyManager.NETWORK_TYPE_UNKNOWN }
+        } catch (_: SecurityException) {
+            null
+        } catch (_: UnsupportedOperationException) {
+            null
+        } catch (_: RuntimeException) {
+            null
+        }
+    }
+
+    private fun cellMatcherForDataNetwork(networkType: Int): ((CellInfo) -> Boolean)? = when (networkType) {
+        TelephonyManager.NETWORK_TYPE_GSM,
+        TelephonyManager.NETWORK_TYPE_GPRS,
+        TelephonyManager.NETWORK_TYPE_EDGE,
+        -> { cell -> cell is CellInfoGsm }
+        TelephonyManager.NETWORK_TYPE_LTE -> { cell -> cell is CellInfoLte }
+        TelephonyManager.NETWORK_TYPE_NR -> { cell -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && cell is CellInfoNr }
+        TelephonyManager.NETWORK_TYPE_UMTS,
+        TelephonyManager.NETWORK_TYPE_HSDPA,
+        TelephonyManager.NETWORK_TYPE_HSUPA,
+        TelephonyManager.NETWORK_TYPE_HSPA,
+        TelephonyManager.NETWORK_TYPE_HSPAP,
+        -> { cell -> cell is CellInfoWcdma }
+        TelephonyManager.NETWORK_TYPE_TD_SCDMA -> { cell -> cell is CellInfoTdscdma }
+        TelephonyManager.NETWORK_TYPE_CDMA,
+        TelephonyManager.NETWORK_TYPE_EVDO_0,
+        TelephonyManager.NETWORK_TYPE_EVDO_A,
+        TelephonyManager.NETWORK_TYPE_EVDO_B,
+        TelephonyManager.NETWORK_TYPE_1xRTT,
+        TelephonyManager.NETWORK_TYPE_EHRPD,
+        -> { cell -> cell is CellInfoCdma }
+        else -> null
+    }
+
+    private fun isLteOrNr(cellInfo: CellInfo): Boolean =
+        cellInfo is CellInfoLte ||
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && cellInfo is CellInfoNr)
+
+    private fun dataNetworkTechnology(networkType: Int): String = when (networkType) {
+        TelephonyManager.NETWORK_TYPE_LTE -> "LTE"
+        TelephonyManager.NETWORK_TYPE_NR -> "NR"
+        TelephonyManager.NETWORK_TYPE_GSM,
+        TelephonyManager.NETWORK_TYPE_GPRS,
+        TelephonyManager.NETWORK_TYPE_EDGE,
+        -> "GSM"
+        TelephonyManager.NETWORK_TYPE_UMTS,
+        TelephonyManager.NETWORK_TYPE_HSDPA,
+        TelephonyManager.NETWORK_TYPE_HSUPA,
+        TelephonyManager.NETWORK_TYPE_HSPA,
+        TelephonyManager.NETWORK_TYPE_HSPAP,
+        -> "WCDMA"
+        TelephonyManager.NETWORK_TYPE_TD_SCDMA -> "TD-SCDMA"
+        TelephonyManager.NETWORK_TYPE_CDMA,
+        TelephonyManager.NETWORK_TYPE_EVDO_0,
+        TelephonyManager.NETWORK_TYPE_EVDO_A,
+        TelephonyManager.NETWORK_TYPE_EVDO_B,
+        TelephonyManager.NETWORK_TYPE_1xRTT,
+        TelephonyManager.NETWORK_TYPE_EHRPD,
+        -> "CDMA"
+        else -> "сотовая сеть"
+    }
+
     private fun timestampMillis(cellInfo: CellInfo): Long =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             cellInfo.timestampMillis
@@ -179,11 +259,14 @@ class RadioInfoProvider(private val context: Context) {
     private fun available(value: Int): Int? =
         if (value == CellInfo.UNAVAILABLE) null else value
 
-    private fun unavailable(reason: String): Map<String, Any?> = mapOf(
+    private fun unavailable(
+        reason: String,
+        accessTechnology: String? = null,
+    ): Map<String, Any?> = mapOf(
         "available" to false,
         "status" to reason,
         "reason" to reason,
-        "accessTechnology" to null,
+        "accessTechnology" to accessTechnology,
         "registered" to null,
         "signalDbm" to null,
         "rsrpDbm" to null,
