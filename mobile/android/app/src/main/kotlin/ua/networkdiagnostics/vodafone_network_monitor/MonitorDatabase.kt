@@ -54,7 +54,9 @@ class MonitorDatabase(context: Context) :
                 channel INTEGER,
                 radio_age_ms INTEGER,
                 download_mbps REAL,
-                upload_mbps REAL
+                upload_mbps REAL,
+                download_error TEXT,
+                upload_error TEXT
             )""".trimIndent(),
         )
         db.execSQL("CREATE TABLE preferences (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
@@ -70,6 +72,10 @@ class MonitorDatabase(context: Context) :
             db.execSQL("ALTER TABLE measurements ADD COLUMN download_mbps REAL")
             db.execSQL("ALTER TABLE measurements ADD COLUMN upload_mbps REAL")
             db.execSQL("CREATE TABLE preferences (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
+        }
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE measurements ADD COLUMN download_error TEXT")
+            db.execSQL("ALTER TABLE measurements ADD COLUMN upload_error TEXT")
         }
     }
 
@@ -161,6 +167,8 @@ class MonitorDatabase(context: Context) :
             "ageMillis" to "radio_age_ms",
             "downloadMbps" to "download_mbps",
             "uploadMbps" to "upload_mbps",
+            "downloadError" to "download_error",
+            "uploadError" to "upload_error",
         )
         val contentValues = ContentValues().apply {
             put("session_id", sessionId)
@@ -285,7 +293,7 @@ class MonitorDatabase(context: Context) :
 
     private companion object {
         const val DATABASE_NAME = "network-monitor.sqlite"
-        const val DATABASE_VERSION = 2
+        const val DATABASE_VERSION = 3
         const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
     }
 }

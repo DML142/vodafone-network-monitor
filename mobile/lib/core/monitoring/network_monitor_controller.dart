@@ -14,6 +14,8 @@ const _eventChannel = EventChannel(
 
 class NetworkMonitorController extends ChangeNotifier {
   int probeIntervalSeconds = 30;
+  bool autoSpeedTestEnabled = false;
+  int autoSpeedTestIntervalSeconds = 30;
   static const radioInterval = Duration(seconds: 60);
   static const _defaultHost = 'connectivitycheck.gstatic.com';
   static const _defaultProbeUrl =
@@ -49,6 +51,7 @@ class NetworkMonitorController extends ChangeNotifier {
   bool radioPermissionGranted = false;
   String radioStatus = 'permission_required';
   String? radioAccessTechnology;
+  String? radioSource;
   bool? radioRegistered;
   int? radioSignalDbm;
   int? radioRsrpDbm;
@@ -296,6 +299,8 @@ class NetworkMonitorController extends ChangeNotifier {
 
   Future<bool> saveSettings({
     required int newProbeIntervalSeconds,
+    required bool newAutoSpeedTestEnabled,
+    required int newAutoSpeedTestIntervalSeconds,
     required int newRetentionDays,
     required String newProbeHost,
     required String newProbeUrl,
@@ -306,6 +311,8 @@ class NetworkMonitorController extends ChangeNotifier {
         'saveSettings',
         {
           'probeIntervalSeconds': newProbeIntervalSeconds,
+          'autoSpeedTestEnabled': newAutoSpeedTestEnabled,
+          'autoSpeedTestIntervalSeconds': newAutoSpeedTestIntervalSeconds,
           'retentionDays': newRetentionDays,
           'probeHost': newProbeHost,
           'probeUrl': newProbeUrl,
@@ -329,7 +336,11 @@ class NetworkMonitorController extends ChangeNotifier {
   }
 
   void _applySettings(Map<String, dynamic> values) {
-    probeIntervalSeconds = (values['probeIntervalSeconds'] as num?)?.toInt() ?? 30;
+    probeIntervalSeconds =
+        (values['probeIntervalSeconds'] as num?)?.toInt() ?? 30;
+    autoSpeedTestEnabled = values['autoSpeedTestEnabled'] as bool? ?? false;
+    autoSpeedTestIntervalSeconds =
+        (values['autoSpeedTestIntervalSeconds'] as num?)?.toInt() ?? 30;
     retentionDays = (values['retentionDays'] as num?)?.toInt() ?? 30;
     probeHost = values['probeHost'] as String? ?? _defaultHost;
     probeUrl = values['probeUrl'] as String? ?? _defaultProbeUrl;
@@ -339,7 +350,9 @@ class NetworkMonitorController extends ChangeNotifier {
 
   Future<void> refreshSessions() async {
     try {
-      final rows = await _methodChannel.invokeListMethod<dynamic>('getSessions');
+      final rows = await _methodChannel.invokeListMethod<dynamic>(
+        'getSessions',
+      );
       if (rows == null) return;
       sessions = rows
           .whereType<Map>()
@@ -377,10 +390,9 @@ class NetworkMonitorController extends ChangeNotifier {
 
   Future<bool> deleteSession(String sessionId) async {
     try {
-      await _methodChannel.invokeMethod<int>(
-        'deleteSession',
-        {'sessionId': sessionId},
-      );
+      await _methodChannel.invokeMethod<int>('deleteSession', {
+        'sessionId': sessionId,
+      });
       await refreshSessions();
       return true;
     } on PlatformException catch (error) {
@@ -440,20 +452,18 @@ class NetworkMonitorController extends ChangeNotifier {
     final started = DateTime.fromMillisecondsSinceEpoch(
       (session['startedAtUtc'] as num?)?.toInt() ?? 0,
     ).toLocal();
-    final stamp = '${started.year.toString().padLeft(4, '0')}'
+    final stamp =
+        '${started.year.toString().padLeft(4, '0')}'
         '${started.month.toString().padLeft(2, '0')}'
         '${started.day.toString().padLeft(2, '0')}-'
         '${started.hour.toString().padLeft(2, '0')}'
         '${started.minute.toString().padLeft(2, '0')}';
     try {
-      return await _methodChannel.invokeMethod<bool>(
-            'exportSession',
-            {
-              'content': content,
-              'filename': 'network-session-$stamp.${isJson ? 'json' : 'csv'}',
-              'mimeType': isJson ? 'application/json' : 'text/csv',
-            },
-          ) ??
+      return await _methodChannel.invokeMethod<bool>('exportSession', {
+            'content': content,
+            'filename': 'network-session-$stamp.${isJson ? 'json' : 'csv'}',
+            'mimeType': isJson ? 'application/json' : 'text/csv',
+          }) ??
           false;
     } on PlatformException catch (error) {
       platformError = error.message ?? 'Не удалось экспортировать сессию';
@@ -465,6 +475,7 @@ class NetworkMonitorController extends ChangeNotifier {
   void _applyRadioInfo(Map<String, dynamic> values) {
     radioStatus = values['status'] as String? ?? 'read_error';
     radioAccessTechnology = values['accessTechnology'] as String?;
+    radioSource = values['source'] as String?;
     radioRegistered = values['registered'] as bool?;
     radioSignalDbm = values['signalDbm'] as int?;
     radioRsrpDbm = values['rsrpDbm'] as int?;
@@ -478,6 +489,7 @@ class NetworkMonitorController extends ChangeNotifier {
 
   void _clearRadioSnapshot() {
     radioAccessTechnology = null;
+    radioSource = null;
     radioRegistered = null;
     radioSignalDbm = null;
     radioRsrpDbm = null;

@@ -234,6 +234,12 @@ class MainActivity : FlutterActivity() {
             "probeIntervalSeconds" to (saved[RecordingService.KEY_PROBE_INTERVAL_SECONDS]?.toIntOrNull()
                 ?.coerceIn(RecordingService.MIN_PROBE_INTERVAL_SECONDS, RecordingService.MAX_PROBE_INTERVAL_SECONDS)
                 ?: RecordingService.DEFAULT_PROBE_INTERVAL_SECONDS),
+            "autoSpeedTestEnabled" to (saved[RecordingService.KEY_AUTO_SPEED_TEST_ENABLED]
+                ?.toBooleanStrictOrNull() ?: false),
+            "autoSpeedTestIntervalSeconds" to (saved[RecordingService.KEY_AUTO_SPEED_TEST_INTERVAL_SECONDS]
+                ?.toIntOrNull()
+                ?.coerceIn(RecordingService.MIN_AUTO_SPEED_TEST_INTERVAL_SECONDS, RecordingService.MAX_AUTO_SPEED_TEST_INTERVAL_SECONDS)
+                ?: RecordingService.DEFAULT_AUTO_SPEED_TEST_INTERVAL_SECONDS),
             "retentionDays" to (saved[RecordingService.KEY_RETENTION_DAYS]?.toIntOrNull()?.coerceIn(1, RecordingService.MAX_RETENTION_DAYS) ?: 30),
             "probeHost" to (saved[RecordingService.KEY_PROBE_HOST] ?: RecordingService.DEFAULT_HOST),
             "probeUrl" to (saved[RecordingService.KEY_PROBE_URL] ?: RecordingService.DEFAULT_URL),
@@ -243,11 +249,16 @@ class MainActivity : FlutterActivity() {
 
     private fun saveSettings(values: Map<*, *>?, result: MethodChannel.Result) {
         val interval = (values?.get("probeIntervalSeconds") as? Number)?.toInt()
+        val autoSpeedTestEnabled = values?.get("autoSpeedTestEnabled") as? Boolean
+        val autoSpeedTestInterval =
+            (values?.get("autoSpeedTestIntervalSeconds") as? Number)?.toInt()
         val retention = (values?.get("retentionDays") as? Number)?.toInt()
         val host = values?.get("probeHost") as? String
         val probeUrl = values?.get("probeUrl") as? String
         val theme = values?.get("themeMode") as? String
         if (interval == null || interval !in RecordingService.MIN_PROBE_INTERVAL_SECONDS..RecordingService.MAX_PROBE_INTERVAL_SECONDS ||
+            autoSpeedTestEnabled == null ||
+            autoSpeedTestInterval == null || autoSpeedTestInterval !in RecordingService.MIN_AUTO_SPEED_TEST_INTERVAL_SECONDS..RecordingService.MAX_AUTO_SPEED_TEST_INTERVAL_SECONDS ||
             retention == null || retention !in 1..RecordingService.MAX_RETENTION_DAYS ||
             host.isNullOrBlank() || !NetworkProbe.validateTarget(host, probeUrl ?: "") ||
             theme !in setOf("system", "light", "dark")
@@ -258,6 +269,8 @@ class MainActivity : FlutterActivity() {
         database.setPreferences(
             mapOf(
                 RecordingService.KEY_PROBE_INTERVAL_SECONDS to interval.toString(),
+                RecordingService.KEY_AUTO_SPEED_TEST_ENABLED to autoSpeedTestEnabled.toString(),
+                RecordingService.KEY_AUTO_SPEED_TEST_INTERVAL_SECONDS to autoSpeedTestInterval.toString(),
                 RecordingService.KEY_RETENTION_DAYS to retention.toString(),
                 RecordingService.KEY_PROBE_HOST to host,
                 RecordingService.KEY_PROBE_URL to probeUrl!!,
@@ -273,7 +286,7 @@ class MainActivity : FlutterActivity() {
 
     private fun runSpeedTest(result: MethodChannel.Result) {
         speedTestExecutor.execute {
-            val measurement = SpeedTestRunner.run()
+            val measurement = SpeedTestRunner.run(this@MainActivity)
             try {
                 val activeSession = if (RecordingService.isRunning) database.currentSession() else null
                 if (activeSession == null) {

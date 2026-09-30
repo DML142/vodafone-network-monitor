@@ -50,6 +50,8 @@ class _NetworkMonitorAppState extends State<NetworkMonitorApp>
     unawaited(
       _monitor.saveSettings(
         newProbeIntervalSeconds: _monitor.probeIntervalSeconds,
+        newAutoSpeedTestEnabled: _monitor.autoSpeedTestEnabled,
+        newAutoSpeedTestIntervalSeconds: _monitor.autoSpeedTestIntervalSeconds,
         newRetentionDays: _monitor.retentionDays,
         newProbeHost: _monitor.probeHost,
         newProbeUrl: _monitor.probeUrl,
